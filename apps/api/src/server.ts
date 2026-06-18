@@ -4,9 +4,11 @@ import { ZodError } from 'zod';
 import {
   comparePassword,
   createCompany,
+  createTicket,
   createUser,
   deleteRefreshToken,
   getAllCompanies,
+  getAllTickets,
   getAllUsers,
   getCompanyById,
   getCompanyUsers,
@@ -439,25 +441,131 @@ app.post(
     },
   },
   async (request: AuthenticatedRequest, reply) => {
-  const userPayload = request.user;
-  if (!userPayload) {
-    throw new AppError(401, 'Unauthorized');
-  }
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
 
-  try {
-    const payload = companyInputSchema.parse(request.body);
-    const company = createCompany(payload.name, payload.domain, userPayload.id);
+    try {
+      const payload = companyInputSchema.parse(request.body);
+      const company = createCompany(payload.name, payload.domain, userPayload.id);
+
+      return reply.code(201).send({
+        company,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        throw new AppError(400, error.errors.map((item) => item.message).join(', '));
+      }
+      throw error;
+    }
+  },
+);
+
+app.post(
+  '/api/v1/tickets',
+  {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['subject', 'description', 'priority'],
+        properties: {
+          subject: { type: 'string', minLength: 1 },
+          description: { type: 'string', minLength: 1 },
+          priority: { type: 'string' },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          required: ['ticket'],
+          properties: {
+            ticket: {
+              type: 'object',
+              required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
+              properties: {
+                id: { type: 'string' },
+                subject: { type: 'string' },
+                description: { type: 'string' },
+                priority: { type: 'string' },
+                status: { type: 'string' },
+                creatorId: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const payload = request.body as {
+      subject: string;
+      description: string;
+      priority: string;
+    };
+
+    const ticket = createTicket(
+      payload.subject,
+      payload.description,
+      payload.priority,
+      userPayload.id,
+    );
 
     return reply.code(201).send({
-      company,
+      ticket,
     });
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw new AppError(400, error.errors.map((item) => item.message).join(', '));
+  },
+);
+
+app.get(
+  '/api/v1/tickets',
+  {
+    preHandler: authenticate,
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['tickets'],
+          properties: {
+            tickets: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
+                properties: {
+                  id: { type: 'string' },
+                  subject: { type: 'string' },
+                  description: { type: 'string' },
+                  priority: { type: 'string' },
+                  status: { type: 'string' },
+                  creatorId: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
     }
-    throw error;
-  }
-});
+
+    const tickets = getAllTickets().filter((ticket) => ticket.creatorId === userPayload.id);
+
+    return reply.send({
+      tickets,
+    });
+  },
+);
 
 app.get(
   '/api/v1/companies',

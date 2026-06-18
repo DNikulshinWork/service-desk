@@ -18,6 +18,16 @@ const companies = new Map<string, {
   ownerId: string;
 }>();
 
+const tickets = new Map<string, {
+  id: string;
+  subject: string;
+  description: string;
+  priority: string;
+  status: string;
+  creatorId: string;
+  assigneeId?: string;
+}>();
+
 export function hashPassword(password: string) {
   return bcrypt.hash(password, 10);
 }
@@ -67,6 +77,30 @@ export function getUserById(id: string) {
 
 export function getAllUsers() {
   return Array.from(users.values());
+}
+
+export function createTicket(
+  subject: string,
+  description: string,
+  priority: string,
+  creatorId: string,
+) {
+  const id = randomUUID();
+  const ticket = {
+    id,
+    subject,
+    description,
+    priority,
+    status: 'OPEN',
+    creatorId,
+  };
+
+  tickets.set(id, ticket);
+  return ticket;
+}
+
+export function getAllTickets() {
+  return Array.from(tickets.values());
 }
 
 export function setRefreshToken(userId: string, token: string) {
