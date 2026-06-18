@@ -1,0 +1,134 @@
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { randomUUID } from 'node:crypto';
+
+const users = new Map<string, {
+  id: string;
+  email: string;
+  passwordHash: string;
+  name: string;
+  role: string;
+}>();
+
+const refreshTokens = new Map<string, string>();
+const companies = new Map<string, {
+  id: string;
+  name: string;
+  domain?: string;
+  ownerId: string;
+}>();
+
+export function hashPassword(password: string) {
+  return bcrypt.hash(password, 10);
+}
+
+export function comparePassword(password: string, hash: string) {
+  return bcrypt.compare(password, hash);
+}
+
+export function signAccessToken(userId: string, role: string) {
+  return jwt.sign(
+    { sub: userId, role },
+    process.env.JWT_SECRET || 'test-secret',
+    { expiresIn: '15m' },
+  );
+}
+
+export function signRefreshToken(userId: string) {
+  return jwt.sign(
+    { sub: userId },
+    process.env.REFRESH_SECRET || 'test-refresh-secret',
+    { expiresIn: '7d' },
+  );
+}
+
+export function createUser(email: string, password: string, name: string) {
+  const id = randomUUID();
+  const passwordHash = bcrypt.hashSync(password, 10);
+  const user = {
+    id,
+    email,
+    passwordHash,
+    name,
+    role: 'USER',
+  };
+
+  users.set(email, user);
+  return user;
+}
+
+export function getUserByEmail(email: string) {
+  return users.get(email);
+}
+
+export function getUserById(id: string) {
+  return Array.from(users.values()).find((user) => user.id === id);
+}
+
+export function setRefreshToken(userId: string, token: string) {
+  refreshTokens.set(userId, token);
+}
+
+export function getRefreshToken(userId: string) {
+  return refreshTokens.get(userId);
+}
+
+export function deleteRefreshToken(userId: string) {
+  refreshTokens.delete(userId);
+}
+
+export function verifyAccessToken(token: string) {
+  return jwt.verify(token, process.env.JWT_SECRET || 'test-secret') as {
+    sub: string;
+    role: string;
+  };
+}
+
+export function verifyRefreshToken(token: string) {
+  return jwt.verify(token, process.env.REFRESH_SECRET || 'test-refresh-secret') as {
+    sub: string;
+  };
+}
+
+export function serializeUser(user: { id: string; email: string; name: string; role: string }) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+  };
+}
+
+export function createCompany(name: string, domain: string | undefined, ownerId: string) {
+  const id = randomUUID();
+  const company = {
+    id,
+    name,
+    domain,
+    ownerId,
+  };
+
+  companies.set(id, company);
+  return company;
+}
+
+export function getAllCompanies() {
+  return Array.from(companies.values());
+}
+
+export function getCompanyById(id: string) {
+  return companies.get(id);
+}
+
+export function getCompanyUsers(companyId: string) {
+  const company = getCompanyById(companyId);
+  if (!company) {
+    return [];
+  }
+
+  return Array.from(users.values()).filter((user) => user.id === company.ownerId);
+}
+
+export function requireRole(role: string, userRole: string) {
+  return userRole === role || userRole === 'ADMIN';
+}

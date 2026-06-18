@@ -1,0 +1,13 @@
+{
+  "name": "service-desk",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter @service-desk/api dev",
+    "test": "pnpm --filter @service-desk/api test"
+  }
+}
