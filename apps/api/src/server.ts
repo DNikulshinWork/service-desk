@@ -305,6 +305,14 @@ app.get('/api/v1/companies/:id/users', {
   });
 });
 
+app.get('/api/v1/admin/users', {
+  preHandler: [authenticate, requireRole('ADMIN')],
+}, async (_request: AuthenticatedRequest, reply) => {
+  return reply.send({
+    users: [],
+  });
+});
+
 export async function buildApp() {
   return app;
 }
