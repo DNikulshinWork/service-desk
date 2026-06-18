@@ -33,4 +33,37 @@ describe('role policy checks', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveProperty('users');
   });
+
+  it('returns registered users for admin requests', async () => {
+    const app = await buildApp();
+    const email = `admin-list-${Date.now()}@example.com`;
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        email,
+        password: 'Password123!',
+        name: 'Admin List User',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users',
+      headers: {
+        authorization: `Bearer ${signAccessToken('admin-2', 'ADMIN')}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().users).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          email,
+          name: 'Admin List User',
+        }),
+      ]),
+    );
+  });
 });

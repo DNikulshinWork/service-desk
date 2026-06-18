@@ -65,6 +65,10 @@ export function getUserById(id: string) {
   return Array.from(users.values()).find((user) => user.id === id);
 }
 
+export function getAllUsers() {
+  return Array.from(users.values());
+}
+
 export function setRefreshToken(userId: string, token: string) {
   refreshTokens.set(userId, token);
 }
