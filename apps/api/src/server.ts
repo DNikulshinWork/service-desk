@@ -7,6 +7,7 @@ import {
   createUser,
   deleteRefreshToken,
   getAllCompanies,
+  getAllUsers,
   getCompanyById,
   getCompanyUsers,
   getRefreshToken,
@@ -91,6 +92,37 @@ app.get(
 
 app.post(
   '/api/v1/auth/register',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['email', 'password', 'name'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          password: { type: 'string', minLength: 8 },
+          name: { type: 'string', minLength: 1 },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          required: ['user'],
+          properties: {
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'name', 'role'],
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                name: { type: 'string' },
+                role: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   async (request, reply) => {
     try {
       const { email, password, name } = registerInputSchema.parse(request.body);
@@ -114,6 +146,37 @@ app.post(
 
 app.post(
   '/api/v1/auth/login',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['email', 'password'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          password: { type: 'string', minLength: 1 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['accessToken', 'user'],
+          properties: {
+            accessToken: { type: 'string' },
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'name', 'role'],
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                name: { type: 'string' },
+                role: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   async (request, reply) => {
     try {
       const { email, password } = loginInputSchema.parse(request.body);
@@ -147,7 +210,39 @@ app.post(
   },
 );
 
-app.post('/api/v1/auth/refresh', async (request, reply) => {
+app.post(
+  '/api/v1/auth/refresh',
+  {
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['accessToken', 'user'],
+          properties: {
+            accessToken: { type: 'string' },
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'name', 'role'],
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                name: { type: 'string' },
+                role: { type: 'string' },
+              },
+            },
+          },
+        },
+        401: {
+          type: 'object',
+          required: ['message'],
+          properties: {
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+  async (request, reply) => {
   const refreshToken = request.cookies.refresh_token as string | undefined;
   if (!refreshToken) {
     return reply.code(401).send({ message: 'Missing refresh token' });
@@ -181,7 +276,22 @@ app.post('/api/v1/auth/refresh', async (request, reply) => {
   }
 });
 
-app.post('/api/v1/auth/logout', async (request, reply) => {
+app.post(
+  '/api/v1/auth/logout',
+  {
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['ok'],
+          properties: {
+            ok: { type: 'boolean' },
+          },
+        },
+      },
+    },
+  },
+  async (request, reply) => {
   const refreshToken = request.cookies.refresh_token as string | undefined;
   if (!refreshToken) {
     return reply.clearCookie('refresh_token').code(200).send({ ok: true });
@@ -197,9 +307,32 @@ app.post('/api/v1/auth/logout', async (request, reply) => {
   return reply.clearCookie('refresh_token').send({ ok: true });
 });
 
-app.get('/api/v1/users/me', {
-  preHandler: authenticate,
-}, async (request: AuthenticatedRequest, reply) => {
+app.get(
+  '/api/v1/users/me',
+  {
+    preHandler: authenticate,
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['user'],
+          properties: {
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'name', 'role'],
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                name: { type: 'string' },
+                role: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
   const userPayload = request.user;
   if (!userPayload) {
     return reply.code(401).send({ message: 'Unauthorized' });
@@ -215,9 +348,38 @@ app.get('/api/v1/users/me', {
   });
 });
 
-app.patch('/api/v1/users/me', {
-  preHandler: authenticate,
-}, async (request: AuthenticatedRequest, reply) => {
+app.patch(
+  '/api/v1/users/me',
+  {
+    preHandler: authenticate,
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', minLength: 1 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['user'],
+          properties: {
+            user: {
+              type: 'object',
+              required: ['id', 'email', 'name', 'role'],
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                name: { type: 'string' },
+                role: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
   const userPayload = request.user;
   if (!userPayload) {
     throw new AppError(401, 'Unauthorized');
@@ -243,9 +405,40 @@ app.patch('/api/v1/users/me', {
   }
 });
 
-app.post('/api/v1/companies', {
-  preHandler: [authenticate, requireRole('USER')],
-}, async (request: AuthenticatedRequest, reply) => {
+app.post(
+  '/api/v1/companies',
+  {
+    preHandler: [authenticate, requireRole('USER')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 1 },
+          domain: { type: 'string' },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          required: ['company'],
+          properties: {
+            company: {
+              type: 'object',
+              required: ['id', 'name', 'ownerId'],
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                domain: { type: 'string' },
+                ownerId: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
   const userPayload = request.user;
   if (!userPayload) {
     throw new AppError(401, 'Unauthorized');
@@ -266,9 +459,35 @@ app.post('/api/v1/companies', {
   }
 });
 
-app.get('/api/v1/companies', {
-  preHandler: authenticate,
-}, async (request: AuthenticatedRequest, reply) => {
+app.get(
+  '/api/v1/companies',
+  {
+    preHandler: authenticate,
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['companies'],
+          properties: {
+            companies: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['id', 'name', 'ownerId'],
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  domain: { type: 'string' },
+                  ownerId: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
   const userPayload = request.user;
   if (!userPayload) {
     return reply.code(401).send({ message: 'Unauthorized' });
@@ -281,9 +500,52 @@ app.get('/api/v1/companies', {
   });
 });
 
-app.get('/api/v1/companies/:id/users', {
-  preHandler: authenticate,
-}, async (request: AuthenticatedRequest, reply) => {
+app.get(
+  '/api/v1/companies/:id/users',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['company', 'users'],
+          properties: {
+            company: {
+              type: 'object',
+              required: ['id', 'name', 'ownerId'],
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                domain: { type: 'string' },
+                ownerId: { type: 'string' },
+              },
+            },
+            users: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['id', 'email', 'name', 'role'],
+                properties: {
+                  id: { type: 'string' },
+                  email: { type: 'string' },
+                  name: { type: 'string' },
+                  role: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
   const userPayload = request.user;
   if (!userPayload) {
     return reply.code(401).send({ message: 'Unauthorized' });
@@ -305,15 +567,59 @@ app.get('/api/v1/companies/:id/users', {
   });
 });
 
-app.get('/api/v1/admin/users', {
-  preHandler: [authenticate, requireRole('ADMIN')],
-}, async (_request: AuthenticatedRequest, reply) => {
+app.get(
+  '/api/v1/admin/users',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['users'],
+          properties: {
+            users: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['id', 'email', 'name', 'role'],
+                properties: {
+                  id: { type: 'string' },
+                  email: { type: 'string' },
+                  name: { type: 'string' },
+                  role: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (_request: AuthenticatedRequest, reply) => {
   return reply.send({
-    users: [],
+    users: getAllUsers().map(serializeUser),
   });
 });
 
-app.get('/api/v1/auth/oauth/:provider', async (request, reply) => {
+app.get(
+  '/api/v1/auth/oauth/:provider',
+  {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['provider'],
+        properties: {
+          provider: { type: 'string' },
+        },
+      },
+      response: {
+        302: {
+          type: 'object',
+        },
+      },
+    },
+  },
+  async (request, reply) => {
   const params = request.params as { provider: string };
   const provider = params.provider;
 
@@ -328,7 +634,30 @@ app.get('/api/v1/auth/oauth/:provider', async (request, reply) => {
   return reply.redirect(providerUrl);
 });
 
-app.get('/api/v1/auth/oauth/:provider/callback', async (request, reply) => {
+app.get(
+  '/api/v1/auth/oauth/:provider/callback',
+  {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['provider'],
+        properties: {
+          provider: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['ok', 'provider'],
+          properties: {
+            ok: { type: 'boolean' },
+            provider: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+  async (request, reply) => {
   const params = request.params as { provider: string };
   if (!['github', 'google'].includes(params.provider)) {
     throw new AppError(400, 'Unsupported provider');
