@@ -99,6 +99,34 @@ export function createTicket(
   return ticket;
 }
 
+export function getTicketById(id: string) {
+  return tickets.get(id);
+}
+
+export function updateTicket(
+  id: string,
+  updates: Partial<{
+    subject: string;
+    description: string;
+    priority: string;
+    status: string;
+    assigneeId?: string;
+  }>,
+) {
+  const current = tickets.get(id);
+  if (!current) {
+    return undefined;
+  }
+
+  const updated = {
+    ...current,
+    ...updates,
+  };
+
+  tickets.set(id, updated);
+  return updated;
+}
+
 export function getAllTickets() {
   return Array.from(tickets.values());
 }

@@ -13,6 +13,7 @@ import {
   getCompanyById,
   getCompanyUsers,
   getRefreshToken,
+  getTicketById,
   getUserByEmail,
   getUserById,
   requireRole as requireRoleHelper,
@@ -20,6 +21,7 @@ import {
   setRefreshToken,
   signAccessToken,
   signRefreshToken,
+  updateTicket,
   verifyAccessToken,
   verifyRefreshToken,
 } from './auth.js';
@@ -563,6 +565,145 @@ app.get(
 
     return reply.send({
       tickets,
+    });
+  },
+);
+
+app.get(
+  '/api/v1/tickets/:id',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['ticket'],
+          properties: {
+            ticket: {
+              type: 'object',
+              required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
+              properties: {
+                id: { type: 'string' },
+                subject: { type: 'string' },
+                description: { type: 'string' },
+                priority: { type: 'string' },
+                status: { type: 'string' },
+                creatorId: { type: 'string' },
+                assigneeId: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const params = request.params as { id: string };
+    const ticket = getTicketById(params.id);
+
+    if (!ticket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    if (ticket.creatorId !== userPayload.id && userPayload.role !== 'ADMIN') {
+      throw new AppError(403, 'Forbidden');
+    }
+
+    return reply.send({
+      ticket,
+    });
+  },
+);
+
+app.patch(
+  '/api/v1/tickets/:id',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      body: {
+        type: 'object',
+        properties: {
+          subject: { type: 'string', minLength: 1 },
+          description: { type: 'string', minLength: 1 },
+          priority: { type: 'string' },
+          status: { type: 'string' },
+          assigneeId: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['ticket'],
+          properties: {
+            ticket: {
+              type: 'object',
+              required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
+              properties: {
+                id: { type: 'string' },
+                subject: { type: 'string' },
+                description: { type: 'string' },
+                priority: { type: 'string' },
+                status: { type: 'string' },
+                creatorId: { type: 'string' },
+                assigneeId: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const params = request.params as { id: string };
+    const ticket = getTicketById(params.id);
+
+    if (!ticket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    if (ticket.creatorId !== userPayload.id && userPayload.role !== 'ADMIN') {
+      throw new AppError(403, 'Forbidden');
+    }
+
+    const payload = request.body as {
+      subject?: string;
+      description?: string;
+      priority?: string;
+      status?: string;
+      assigneeId?: string;
+    };
+
+    const updatedTicket = updateTicket(params.id, payload);
+    if (!updatedTicket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    return reply.send({
+      ticket: updatedTicket,
     });
   },
 );
