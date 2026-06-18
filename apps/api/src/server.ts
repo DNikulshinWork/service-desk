@@ -313,6 +313,33 @@ app.get('/api/v1/admin/users', {
   });
 });
 
+app.get('/api/v1/auth/oauth/:provider', async (request, reply) => {
+  const params = request.params as { provider: string };
+  const provider = params.provider;
+
+  if (!['github', 'google'].includes(provider)) {
+    throw new AppError(400, 'Unsupported provider');
+  }
+
+  const providerUrl = provider === 'github'
+    ? 'https://github.com/login/oauth/authorize'
+    : 'https://accounts.google.com/o/oauth2/v2/auth';
+
+  return reply.redirect(providerUrl);
+});
+
+app.get('/api/v1/auth/oauth/:provider/callback', async (request, reply) => {
+  const params = request.params as { provider: string };
+  if (!['github', 'google'].includes(params.provider)) {
+    throw new AppError(400, 'Unsupported provider');
+  }
+
+  return reply.send({
+    ok: true,
+    provider: params.provider,
+  });
+});
+
 export async function buildApp() {
   return app;
 }
