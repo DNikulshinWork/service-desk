@@ -1,15 +1,21 @@
+
 import cookie from '@fastify/cookie';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import Fastify, { type FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
 import {
   comparePassword,
+  createComment,
   createCompany,
   createTicket,
   createUser,
   deleteRefreshToken,
+  deleteTicket,
   getAllCompanies,
   getAllTickets,
   getAllUsers,
+  getCommentsByTicketId,
   getCompanyById,
   getCompanyUsers,
   getRefreshToken,
@@ -47,6 +53,38 @@ const app = Fastify({
 app.setErrorHandler(errorHandler);
 
 await app.register(cookie);
+
+await app.register(swagger, {
+  swagger: {
+    info: {
+      title: 'Service Desk API',
+      description: 'API for Service Desk',
+      version: '1.0.0',
+    },
+    externalDocs: {
+      url: 'https://swagger.io',
+      description: 'Find more info here',
+    },
+    host: 'localhost:3000',
+    schemes: ['http'],
+    consumes: ['application/json'],
+    produces: ['application/json'],
+  },
+});
+
+await app.register(swaggerUi, {
+  routePrefix: '/docs',
+  uiConfig: {
+    docExpansion: 'full',
+    deepLinking: true,
+  },
+  uiHooks: {
+    onRequest: function (request, reply, next) { next() },
+    preHandler: function (request, reply, next) { next() },
+  },
+  staticCSP: true,
+  transformStaticCSP: (header) => header,
+});
 
 const authenticate = async (request: AuthenticatedRequest, reply: any) => {
   const authHeader = request.headers.authorization;
@@ -627,7 +665,7 @@ app.get(
   },
 );
 
-app.patch(
+app.put(
   '/api/v1/tickets/:id',
   {
     preHandler: authenticate,
@@ -704,6 +742,176 @@ app.patch(
 
     return reply.send({
       ticket: updatedTicket,
+    });
+  },
+);
+
+app.delete(
+  '/api/v1/tickets/:id',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      response: {
+        204: {
+          type: 'object',
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const params = request.params as { id: string };
+    const ticket = getTicketById(params.id);
+
+    if (!ticket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    if (ticket.creatorId !== userPayload.id && userPayload.role !== 'ADMIN') {
+      throw new AppError(403, 'Forbidden');
+    }
+
+    deleteTicket(params.id);
+
+    return reply.code(204).send();
+  },
+);
+
+app.post(
+  '/api/v1/tickets/:id/comments',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      body: {
+        type: 'object',
+        required: ['text'],
+        properties: {
+          text: { type: 'string', minLength: 1 },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          required: ['comment'],
+          properties: {
+            comment: {
+              type: 'object',
+              required: ['id', 'text', 'ticketId', 'creatorId'],
+              properties: {
+                id: { type: 'string' },
+                text: { type: 'string' },
+                ticketId: { type: 'string' },
+                creatorId: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const params = request.params as { id: string };
+    const ticket = getTicketById(params.id);
+
+    if (!ticket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    if (ticket.creatorId !== userPayload.id && userPayload.role !== 'ADMIN') {
+      throw new AppError(403, 'Forbidden');
+    }
+
+    const payload = request.body as {
+      text: string;
+    };
+
+    const comment = createComment(payload.text, params.id, userPayload.id);
+
+    return reply.code(201).send({
+      comment,
+    });
+  },
+);
+
+app.get(
+  '/api/v1/tickets/:id/comments',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['comments'],
+          properties: {
+            comments: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['id', 'text', 'ticketId', 'creatorId'],
+                properties: {
+                  id: { type: 'string' },
+                  text: { type: 'string' },
+                  ticketId: { type: 'string' },
+                  creatorId: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const params = request.params as { id: string };
+    const ticket = getTicketById(params.id);
+
+    if (!ticket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    if (ticket.creatorId !== userPayload.id && userPayload.role !== 'ADMIN') {
+      throw new AppError(403, 'Forbidden');
+    }
+
+    const comments = getCommentsByTicketId(params.id);
+
+    return reply.send({
+      comments,
     });
   },
 );
@@ -919,12 +1127,18 @@ app.get(
 });
 
 export async function buildApp() {
+  await app.ready();
   return app;
 }
 
 if (process.env.NODE_ENV !== 'test') {
   const port = Number(process.env.PORT || 3000);
-  app.listen({ port, host: '0.0.0.0' }).catch((error) => {
+  app.listen({ port, host: '0.0.0.0' }).then(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`Server is running at http://localhost:${port}`);
+      console.log(`Swagger documentation is available at http://localhost:${port}/docs`);
+    }
+  }).catch((error) => {
     app.log.error(error);
     process.exit(1);
   });

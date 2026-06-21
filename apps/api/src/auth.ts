@@ -1,3 +1,4 @@
+
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
@@ -26,6 +27,13 @@ const tickets = new Map<string, {
   status: string;
   creatorId: string;
   assigneeId?: string;
+}>();
+
+const comments = new Map<string, {
+  id: string;
+  text: string;
+  ticketId: string;
+  creatorId: string;
 }>();
 
 export function hashPassword(password: string) {
@@ -127,8 +135,35 @@ export function updateTicket(
   return updated;
 }
 
+export function deleteTicket(id: string) {
+  tickets.delete(id);
+}
+
 export function getAllTickets() {
   return Array.from(tickets.values());
+}
+
+export function createComment(
+  text: string,
+  ticketId: string,
+  creatorId: string,
+) {
+  const id = randomUUID();
+  const comment = {
+    id,
+    text,
+    ticketId,
+    creatorId,
+  };
+
+  comments.set(id, comment);
+  return comment;
+}
+
+export function getCommentsByTicketId(ticketId: string) {
+  return Array.from(comments.values()).filter(
+    (comment) => comment.ticketId === ticketId,
+  );
 }
 
 export function setRefreshToken(userId: string, token: string) {
