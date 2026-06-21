@@ -27,6 +27,7 @@ const tickets = new Map<string, {
   status: string;
   creatorId: string;
   assigneeId?: string;
+  createdAt: number;
 }>();
 
 const comments = new Map<string, {
@@ -43,6 +44,15 @@ const attachments = new Map<string, {
   ticketId: string;
   creatorId: string;
 }>();
+
+export function resetInMemoryDb() {
+  users.clear();
+  refreshTokens.clear();
+  companies.clear();
+  tickets.clear();
+  comments.clear();
+  attachments.clear();
+}
 
 export function hashPassword(password: string) {
   return bcrypt.hash(password, 10);
@@ -109,6 +119,7 @@ export function createTicket(
     priority,
     status: 'OPEN',
     creatorId,
+    createdAt: Date.now(),
   };
 
   tickets.set(id, ticket);
@@ -147,8 +158,49 @@ export function deleteTicket(id: string) {
   tickets.delete(id);
 }
 
-export function getAllTickets() {
-  return Array.from(tickets.values());
+export function getAllTickets(options: {
+  status?: string;
+  priority?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
+  creatorId?: string;
+} = {}) {
+  let allTickets = Array.from(tickets.values());
+
+  if (options.creatorId) {
+    allTickets = allTickets.filter((ticket) => ticket.creatorId === options.creatorId);
+  }
+
+  if (options.status) {
+    allTickets = allTickets.filter((ticket) => ticket.status === options.status);
+  }
+
+  if (options.priority) {
+    allTickets = allTickets.filter((ticket) => ticket.priority === options.priority);
+  }
+
+  if (options.sortBy) {
+    allTickets.sort((a, b) => {
+      const fieldA = a[options.sortBy as keyof typeof a];
+      const fieldB = b[options.sortBy as keyof typeof b];
+      if (fieldA < fieldB) {
+        return options.sortOrder === 'asc' ? -1 : 1;
+      }
+      if (fieldA > fieldB) {
+        return options.sortOrder === 'asc' ? 1 : -1;
+      }
+      return 0;
+    });
+  }
+
+  if (options.page && options.limit) {
+    const startIndex = (options.page - 1) * options.limit;
+    allTickets = allTickets.slice(startIndex, startIndex + options.limit);
+  }
+
+  return allTickets;
 }
 
 export function createComment(

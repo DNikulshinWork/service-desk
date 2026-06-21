@@ -572,6 +572,17 @@ app.get(
   {
     preHandler: authenticate,
     schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          priority: { type: 'string' },
+          sortBy: { type: 'string' },
+          sortOrder: { type: 'string', enum: ['asc', 'desc'] },
+          page: { type: 'number' },
+          limit: { type: 'number' },
+        },
+      },
       response: {
         200: {
           type: 'object',
@@ -603,7 +614,29 @@ app.get(
       throw new AppError(401, 'Unauthorized');
     }
 
-    const tickets = getAllTickets().filter((ticket) => ticket.creatorId === userPayload.id);
+    const { status, priority, sortBy, sortOrder, page, limit } = request.query as {
+      status?: string;
+      priority?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      limit?: number;
+    };
+
+    const options: Parameters<typeof getAllTickets>[0] = {
+      status,
+      priority,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+    };
+
+    if (userPayload.role !== 'ADMIN') {
+      options.creatorId = userPayload.id;
+    }
+
+    const tickets = getAllTickets(options);
 
     return reply.send({
       tickets,
