@@ -1,11 +1,13 @@
 
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import Fastify, { type FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
 import {
   comparePassword,
+  createAttachment,
   createComment,
   createCompany,
   createTicket,
@@ -15,6 +17,7 @@ import {
   getAllCompanies,
   getAllTickets,
   getAllUsers,
+  getAttachmentsByTicketId,
   getCommentsByTicketId,
   getCompanyById,
   getCompanyUsers,
@@ -53,6 +56,7 @@ const app = Fastify({
 app.setErrorHandler(errorHandler);
 
 await app.register(cookie);
+await app.register(multipart);
 
 await app.register(swagger, {
   swagger: {
@@ -67,7 +71,7 @@ await app.register(swagger, {
     },
     host: 'localhost:3000',
     schemes: ['http'],
-    consumes: ['application/json'],
+    consumes: ['application/json', 'multipart/form-data'],
     produces: ['application/json'],
   },
 });
@@ -913,6 +917,136 @@ app.get(
     return reply.send({
       comments,
     });
+  },
+);
+
+app.post(
+  '/api/v1/tickets/:id/attachments',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      consumes: ['multipart/form-data'],
+      response: {
+        201: {
+          type: 'object',
+          required: ['attachment'],
+          properties: {
+            attachment: {
+              type: 'object',
+              required: ['id', 'filename', 'mimetype', 'ticketId', 'creatorId'],
+              properties: {
+                id: { type: 'string' },
+                filename: { type: 'string' },
+                mimetype: { type: 'string' },
+                ticketId: { type: 'string' },
+                creatorId: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const params = request.params as { id: string };
+    const ticket = getTicketById(params.id);
+
+    if (!ticket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    if (ticket.creatorId !== userPayload.id && userPayload.role !== 'ADMIN') {
+      throw new AppError(403, 'Forbidden');
+    }
+
+    const data = await request.file();
+
+    if (!data) {
+      throw new AppError(400, 'No file uploaded');
+    }
+
+    // In a real application, you would stream the file to a storage service (e.g., MinIO, S3)
+    // For this example, we'll just use the metadata.
+
+    const attachment = createAttachment(
+      data.filename,
+      data.mimetype,
+      params.id,
+      userPayload.id,
+    );
+
+    return reply.code(201).send({ attachment });
+  },
+);
+
+app.get(
+  '/api/v1/tickets/:id/attachments',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['attachments'],
+          properties: {
+            attachments: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['id', 'filename', 'mimetype', 'ticketId', 'creatorId'],
+                properties: {
+                  id: { type: 'string' },
+                  filename: { type: 'string' },
+                  mimetype: { type: 'string' },
+                  ticketId: { type: 'string' },
+                  creatorId: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) {
+      throw new AppError(401, 'Unauthorized');
+    }
+
+    const params = request.params as { id: string };
+    const ticket = getTicketById(params.id);
+
+    if (!ticket) {
+      throw new AppError(404, 'Ticket not found');
+    }
+
+    if (ticket.creatorId !== userPayload.id && userPayload.role !== 'ADMIN') {
+      throw new AppError(403, 'Forbidden');
+    }
+
+    const attachments = getAttachmentsByTicketId(params.id);
+
+    return reply.send({ attachments });
   },
 );
 

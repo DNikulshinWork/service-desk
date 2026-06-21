@@ -36,6 +36,14 @@ const comments = new Map<string, {
   creatorId: string;
 }>();
 
+const attachments = new Map<string, {
+  id: string;
+  filename: string;
+  mimetype: string;
+  ticketId: string;
+  creatorId: string;
+}>();
+
 export function hashPassword(password: string) {
   return bcrypt.hash(password, 10);
 }
@@ -163,6 +171,31 @@ export function createComment(
 export function getCommentsByTicketId(ticketId: string) {
   return Array.from(comments.values()).filter(
     (comment) => comment.ticketId === ticketId,
+  );
+}
+
+export function createAttachment(
+  filename: string,
+  mimetype: string,
+  ticketId: string,
+  creatorId: string,
+) {
+  const id = randomUUID();
+  const attachment = {
+    id,
+    filename,
+    mimetype,
+    ticketId,
+    creatorId,
+  };
+
+  attachments.set(id, attachment);
+  return attachment;
+}
+
+export function getAttachmentsByTicketId(ticketId: string) {
+  return Array.from(attachments.values()).filter(
+    (attachment) => attachment.ticketId === ticketId,
   );
 }
 
