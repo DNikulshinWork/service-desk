@@ -234,4 +234,63 @@ describe('tickets endpoints', () => {
       ]),
     );
   });
+
+  it('filters, sorts, and paginates tickets', async () => {
+    const app = await buildApp();
+    const email = `query-user-${Date.now()}@example.com`;
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: { email, password: 'Password123!', name: 'Query User' },
+    });
+
+    const loginResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email, password: 'Password123!' },
+    });
+
+    const accessToken = loginResponse.json().accessToken;
+
+    // Create a variety of tickets
+    const ticket1 = (await app.inject({ method: 'POST', url: '/api/v1/tickets', headers: { authorization: `Bearer ${accessToken}` }, payload: { subject: 'First', description: '.', priority: 'LOW' } })).json().ticket;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const ticket2 = (await app.inject({ method: 'POST', url: '/api/v1/tickets', headers: { authorization: `Bearer ${accessToken}` }, payload: { subject: 'Second', description: '.', priority: 'MEDIUM' } })).json().ticket;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const ticket3 = (await app.inject({ method: 'POST', url: '/api/v1/tickets', headers: { authorization: `Bearer ${accessToken}` }, payload: { subject: 'Third', description: '.', priority: 'HIGH' } })).json().ticket;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const ticket4 = (await app.inject({ method: 'POST', url: '/api/v1/tickets', headers: { authorization: `Bearer ${accessToken}` }, payload: { subject: 'Fourth', description: '.', priority: 'MEDIUM' } })).json().ticket;
+
+    // Update statuses
+    await app.inject({ method: 'PUT', url: `/api/v1/tickets/${ticket3.id}`, headers: { authorization: `Bearer ${accessToken}` }, payload: { status: 'IN_PROGRESS' } });
+    await app.inject({ method: 'PUT', url: `/api/v1/tickets/${ticket4.id}`, headers: { authorization: `Bearer ${accessToken}` }, payload: { status: 'IN_PROGRESS' } });
+
+    // Filter by status
+    const openTickets = await app.inject({ method: 'GET', url: '/api/v1/tickets?status=OPEN', headers: { authorization: `Bearer ${accessToken}` } });
+    expect(openTickets.json().tickets.length).toBe(2);
+    expect(openTickets.json().tickets.every((t: any) => t.status === 'OPEN')).toBe(true);
+
+    // Filter by priority
+    const highPriorityTickets = await app.inject({ method: 'GET', url: '/api/v1/tickets?priority=HIGH', headers: { authorization: `Bearer ${accessToken}` } });
+    expect(highPriorityTickets.json().tickets.length).toBe(1);
+    expect(highPriorityTickets.json().tickets[0].priority).toBe('HIGH');
+
+    // Sort by createdAt
+    const sortedTicketsAsc = await app.inject({ method: 'GET', url: '/api/v1/tickets?sortBy=createdAt&sortOrder=asc', headers: { authorization: `Bearer ${accessToken}` } });
+    expect(sortedTicketsAsc.json().tickets.map((t: any) => t.subject)).toEqual(['First', 'Second', 'Third', 'Fourth']);
+
+    const sortedTicketsDesc = await app.inject({ method: 'GET', url: '/api/v1/tickets?sortBy=createdAt&sortOrder=desc', headers: { authorization: `Bearer ${accessToken}` } });
+    expect(sortedTicketsDesc.json().tickets.map((t: any) => t.subject)).toEqual(['Fourth', 'Third', 'Second', 'First']);
+
+    // Paginate
+    const page1 = await app.inject({ method: 'GET', url: '/api/v1/tickets?limit=2&page=1&sortBy=createdAt&sortOrder=asc', headers: { authorization: `Bearer ${accessToken}` } });
+    expect(page1.json().tickets.length).toBe(2);
+    expect(page1.json().tickets.map((t: any) => t.subject)).toEqual(['First', 'Second']);
+
+    const page2 = await app.inject({ method: 'GET', url: '/api/v1/tickets?limit=2&page=2&sortBy=createdAt&sortOrder=asc', headers: { authorization: `Bearer ${accessToken}` } });
+    expect(page2.json().tickets.length).toBe(2);
+    expect(page2.json().tickets.map((t: any) => t.subject)).toEqual(['Third', 'Fourth']);
+  });
+
 });
