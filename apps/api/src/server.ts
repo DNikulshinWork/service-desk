@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import cors from '@fastify/cors';
 import Fastify, { type FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
 import {
@@ -73,6 +74,10 @@ const app = Fastify({
 });
 
 app.setErrorHandler(errorHandler);
+
+await app.register(cors, {
+  origin: 'http://localhost:3001',
+});
 
 await app.register(cookie);
 await app.register(multipart);
