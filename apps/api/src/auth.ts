@@ -2,6 +2,9 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
+import { calculateDeadline } from './deadlines.js';
+import { sendNotification } from './notifications.js';
+import { getTicketWithSlaStatus } from './sla.js';
 
 const users = new Map<string, {
   id: string;
@@ -19,7 +22,7 @@ const companies = new Map<string, {
   ownerId: string;
 }>();
 
-const tickets = new Map<string, {
+export interface Ticket {
   id: string;
   subject: string;
   description: string;
@@ -28,7 +31,13 @@ const tickets = new Map<string, {
   creatorId: string;
   assigneeId?: string;
   createdAt: number;
-}>();
+  responseDue?: number;
+  resolveDue?: number;
+  closedAt?: number;
+  firstRespondedAt?: number;
+}
+
+const tickets = new Map<string, Ticket>();
 
 const comments = new Map<string, {
   id: string;
@@ -45,6 +54,41 @@ const attachments = new Map<string, {
   creatorId: string;
 }>();
 
+const articles = new Map<string, {
+  id: string;
+  title: string;
+  content: string;
+  creatorId: string;
+  createdAt: number;
+  categoryId?: string;
+  status: 'DRAFT' | 'PUBLISHED';
+}>();
+
+const categories = new Map<string, { id: string; name: string }>();
+
+const articleFeedbacks = new Map<string, {
+  id: string;
+  articleId: string;
+  userId: string;
+  vote: 'HELPFUL' | 'NOT_HELPFUL';
+}>();
+
+const slaPolicies = new Map<string, {
+  id: string;
+  name: string;
+  priority: string;
+  responseTime: number; // in hours
+  resolveTime: number; // in hours
+}>();
+
+const workingCalendars = new Map<string, {
+  id: string;
+  name: string;
+  timezone: string;
+  workingDays: number[]; // 0=Sunday, 6=Saturday
+  workingHours: { start: string; end: string }; // e.g., { start: '09:00', end: '17:00' }
+}>();
+
 export function resetInMemoryDb() {
   users.clear();
   refreshTokens.clear();
@@ -52,6 +96,11 @@ export function resetInMemoryDb() {
   tickets.clear();
   comments.clear();
   attachments.clear();
+  articles.clear();
+  categories.clear();
+  articleFeedbacks.clear();
+  slaPolicies.clear();
+  workingCalendars.clear();
 }
 
 export function hashPassword(password: string) {
@@ -105,32 +154,51 @@ export function getAllUsers() {
   return Array.from(users.values());
 }
 
-export function createTicket(
+export async function createTicket(
   subject: string,
   description: string,
   priority: string,
   creatorId: string,
 ) {
   const id = randomUUID();
-  const ticket = {
+  const createdAt = Date.now();
+
+  const slaPolicy = Array.from(slaPolicies.values()).find(p => p.priority === priority);
+  const calendar = Array.from(workingCalendars.values())[0]; // Assume default calendar
+
+  let responseDue: number | undefined;
+  let resolveDue: number | undefined;
+
+  if (slaPolicy && calendar) {
+    responseDue = calculateDeadline(createdAt, slaPolicy, calendar, slaPolicy.responseTime);
+    resolveDue = calculateDeadline(createdAt, slaPolicy, calendar, slaPolicy.resolveTime);
+  }
+
+  const ticket: Ticket = {
     id,
     subject,
     description,
     priority,
     status: 'OPEN',
     creatorId,
-    createdAt: Date.now(),
+    createdAt,
+    responseDue,
+    resolveDue,
   };
 
   tickets.set(id, ticket);
+  await sendNotification({ type: 'TICKET_CREATED', ticketId: id, creatorId });
+
   return ticket;
 }
 
 export function getTicketById(id: string) {
-  return tickets.get(id);
+  const ticket = tickets.get(id);
+  if (!ticket) return undefined;
+  return getTicketWithSlaStatus(ticket);
 }
 
-export function updateTicket(
+export async function updateTicket(
   id: string,
   updates: Partial<{
     subject: string;
@@ -145,13 +213,31 @@ export function updateTicket(
     return undefined;
   }
 
-  const updated = {
+  const updated: Ticket = {
     ...current,
     ...updates,
   };
 
+  if (updates.status === 'CLOSED' && current.status !== 'CLOSED') {
+    updated.closedAt = Date.now();
+  }
+
+  if (updates.priority && updates.priority !== current.priority) {
+    const slaPolicy = Array.from(slaPolicies.values()).find(p => p.priority === updates.priority);
+    const calendar = Array.from(workingCalendars.values())[0];
+
+    if (slaPolicy && calendar) {
+      updated.responseDue = calculateDeadline(current.createdAt, slaPolicy, calendar, slaPolicy.responseTime);
+      updated.resolveDue = calculateDeadline(current.createdAt, slaPolicy, calendar, slaPolicy.resolveTime);
+    }
+  }
+
+  if (updates.assigneeId && updates.assigneeId !== current.assigneeId) {
+    await sendNotification({ type: 'TICKET_ASSIGNED', ticketId: id, assigneeId: updates.assigneeId });
+  }
+
   tickets.set(id, updated);
-  return updated;
+  return getTicketWithSlaStatus(updated);
 }
 
 export function deleteTicket(id: string) {
@@ -200,14 +286,20 @@ export function getAllTickets(options: {
     allTickets = allTickets.slice(startIndex, startIndex + options.limit);
   }
 
-  return allTickets;
+  return allTickets.map(getTicketWithSlaStatus);
 }
 
-export function createComment(
+export async function createComment(
   text: string,
   ticketId: string,
   creatorId: string,
 ) {
+  const ticket = tickets.get(ticketId);
+  if (ticket && !ticket.firstRespondedAt && ticket.creatorId !== creatorId) {
+    ticket.firstRespondedAt = Date.now();
+    tickets.set(ticketId, ticket);
+  }
+
   const id = randomUUID();
   const comment = {
     id,
@@ -217,6 +309,8 @@ export function createComment(
   };
 
   comments.set(id, comment);
+  await sendNotification({ type: 'NEW_COMMENT', ticketId, commentId: id, creatorId });
+
   return comment;
 }
 
@@ -317,4 +411,145 @@ export function getCompanyUsers(companyId: string) {
 
 export function requireRole(role: string, userRole: string) {
   return userRole === role || userRole === 'ADMIN';
+}
+
+export function createCategory(name: string) {
+  const id = randomUUID();
+  const category = { id, name };
+  categories.set(id, category);
+  return category;
+}
+
+export function getAllCategories() {
+  return Array.from(categories.values());
+}
+
+export function createArticle(
+  title: string,
+  content: string,
+  creatorId: string,
+  categoryId?: string,
+) {
+  const id = randomUUID();
+  const article = {
+    id,
+    title,
+    content,
+    creatorId,
+    createdAt: Date.now(),
+    categoryId,
+    status: 'DRAFT' as const,
+  };
+  articles.set(id, article);
+  return article;
+}
+
+export function getArticleById(id: string) {
+  return articles.get(id);
+}
+
+export function getAllArticles(options: { query?: string; categoryId?: string; role?: string } = {}) {
+  let allArticles = Array.from(articles.values());
+
+  if (options.role !== 'ADMIN') {
+    allArticles = allArticles.filter((article) => article.status === 'PUBLISHED');
+  }
+
+  if (options.query) {
+    const lowercasedQuery = options.query.toLowerCase();
+    allArticles = allArticles.filter(
+      (article) =>
+        article.title.toLowerCase().includes(lowercasedQuery) ||
+        article.content.toLowerCase().includes(lowercasedQuery),
+    );
+  }
+
+  if (options.categoryId) {
+    allArticles = allArticles.filter((article) => article.categoryId === options.categoryId);
+  }
+
+  return allArticles;
+}
+
+export function updateArticle(id: string, updates: Partial<{ title: string; content: string; status: 'DRAFT' | 'PUBLISHED' }>) {
+  const current = articles.get(id);
+  if (!current) {
+    return undefined;
+  }
+  const updated = { ...current, ...updates };
+  articles.set(id, updated);
+  return updated;
+}
+
+export function deleteArticle(id: string) {
+  articles.delete(id);
+}
+
+export function createArticleFeedback(articleId: string, userId: string, vote: 'HELPFUL' | 'NOT_HELPFUL') {
+  const id = randomUUID();
+  const feedback = { id, articleId, userId, vote };
+  articleFeedbacks.set(id, feedback);
+  return feedback;
+}
+
+export function getArticleFeedbacks(articleId: string) {
+  return Array.from(articleFeedbacks.values()).filter((feedback) => feedback.articleId === articleId);
+}
+
+export function createSlaPolicy(name: string, priority: string, responseTime: number, resolveTime: number) {
+  const id = randomUUID();
+  const policy = { id, name, priority, responseTime, resolveTime };
+  slaPolicies.set(id, policy);
+  return policy;
+}
+
+export function getSlaPolicy(id: string) {
+  return slaPolicies.get(id);
+}
+
+export function getAllSlaPolicies() {
+  return Array.from(slaPolicies.values());
+}
+
+export function updateSlaPolicy(id: string, updates: Partial<{ name: string; priority: string; responseTime: number; resolveTime: number }>) {
+  const current = slaPolicies.get(id);
+  if (!current) {
+    return undefined;
+  }
+  const updated = { ...current, ...updates };
+  slaPolicies.set(id, updated);
+  return updated;
+}
+
+export function deleteSlaPolicy(id: string) {
+  slaPolicies.delete(id);
+}
+
+export function createWorkingCalendar(name: string, timezone: string, workingDays: number[], workingHours: { start: string; end: string }) {
+  const id = randomUUID();
+  const calendar = { id, name, timezone, workingDays, workingHours };
+  workingCalendars.set(id, calendar);
+  return calendar;
+}
+
+export function getWorkingCalendar(id: string) {
+  return workingCalendars.get(id);
+}
+
+export function getAllWorkingCalendars() {
+  return Array.from(workingCalendars.values());
+}
+
+export function updateWorkingCalendar(id: string, updates: Partial<{ name: string; timezone: string; workingDays: number[]; workingHours: { start: string; end: string } }>) {
+  const current = workingCalendars.get(id);
+  if (!current) {
+    return undefined;
+  }
+  const updated = { ...current, ...updates };
+  workingCalendars.set(id, updated);
+  return updated;
+}
+
+export function deleteWorkingCalendar(id: string) {
+  workingCalendars.delete(id);
 }

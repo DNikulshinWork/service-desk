@@ -33,6 +33,25 @@ import {
   updateTicket,
   verifyAccessToken,
   verifyRefreshToken,
+  createArticle,
+  getAllArticles,
+  getArticleById,
+  updateArticle,
+  deleteArticle,
+  createCategory,
+  getAllCategories,
+  createArticleFeedback,
+  getArticleFeedbacks,
+  createSlaPolicy,
+  getSlaPolicy,
+  getAllSlaPolicies,
+  updateSlaPolicy,
+  deleteSlaPolicy,
+  createWorkingCalendar,
+  getWorkingCalendar,
+  getAllWorkingCalendars,
+  updateWorkingCalendar,
+  deleteWorkingCalendar,
 } from './auth.js';
 import { AppError, errorHandler } from './errors.js';
 import {
@@ -114,6 +133,24 @@ const requireRole = (role: string) => {
       throw new AppError(403, 'Forbidden');
     }
   };
+};
+
+const ticketSchema = {
+  type: 'object',
+  required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
+  properties: {
+    id: { type: 'string' },
+    subject: { type: 'string' },
+    description: { type: 'string' },
+    priority: { type: 'string' },
+    status: { type: 'string' },
+    creatorId: { type: 'string' },
+    assigneeId: { type: 'string' },
+    responseDue: { type: 'number' },
+    resolveDue: { type: 'number' },
+    responseSlaStatus: { type: 'string', enum: ['Pending', 'Met', 'Breached'] },
+    resolveSlaStatus: { type: 'string', enum: ['Pending', 'Met', 'Breached'] },
+  },
 };
 
 app.get(
@@ -525,18 +562,7 @@ app.post(
           type: 'object',
           required: ['ticket'],
           properties: {
-            ticket: {
-              type: 'object',
-              required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
-              properties: {
-                id: { type: 'string' },
-                subject: { type: 'string' },
-                description: { type: 'string' },
-                priority: { type: 'string' },
-                status: { type: 'string' },
-                creatorId: { type: 'string' },
-              },
-            },
+            ticket: ticketSchema,
           },
         },
       },
@@ -554,7 +580,7 @@ app.post(
       priority: string;
     };
 
-    const ticket = createTicket(
+    const ticket = await createTicket(
       payload.subject,
       payload.description,
       payload.priority,
@@ -590,18 +616,7 @@ app.get(
           properties: {
             tickets: {
               type: 'array',
-              items: {
-                type: 'object',
-                required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
-                properties: {
-                  id: { type: 'string' },
-                  subject: { type: 'string' },
-                  description: { type: 'string' },
-                  priority: { type: 'string' },
-                  status: { type: 'string' },
-                  creatorId: { type: 'string' },
-                },
-              },
+              items: ticketSchema,
             },
           },
         },
@@ -661,19 +676,7 @@ app.get(
           type: 'object',
           required: ['ticket'],
           properties: {
-            ticket: {
-              type: 'object',
-              required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
-              properties: {
-                id: { type: 'string' },
-                subject: { type: 'string' },
-                description: { type: 'string' },
-                priority: { type: 'string' },
-                status: { type: 'string' },
-                creatorId: { type: 'string' },
-                assigneeId: { type: 'string' },
-              },
-            },
+            ticket: ticketSchema,
           },
         },
       },
@@ -729,19 +732,7 @@ app.put(
           type: 'object',
           required: ['ticket'],
           properties: {
-            ticket: {
-              type: 'object',
-              required: ['id', 'subject', 'description', 'priority', 'status', 'creatorId'],
-              properties: {
-                id: { type: 'string' },
-                subject: { type: 'string' },
-                description: { type: 'string' },
-                priority: { type: 'string' },
-                status: { type: 'string' },
-                creatorId: { type: 'string' },
-                assigneeId: { type: 'string' },
-              },
-            },
+            ticket: ticketSchema,
           },
         },
       },
@@ -772,7 +763,7 @@ app.put(
       assigneeId?: string;
     };
 
-    const updatedTicket = updateTicket(params.id, payload);
+    const updatedTicket = await updateTicket(params.id, payload);
     if (!updatedTicket) {
       throw new AppError(404, 'Ticket not found');
     }
@@ -885,7 +876,7 @@ app.post(
       text: string;
     };
 
-    const comment = createComment(payload.text, params.id, userPayload.id);
+    const comment = await createComment(payload.text, params.id, userPayload.id);
 
     return reply.code(201).send({
       comment,
@@ -1292,6 +1283,649 @@ app.get(
     provider: params.provider,
   });
 });
+
+const articleSchema = {
+  type: 'object',
+  required: ['id', 'title', 'content', 'creatorId', 'createdAt', 'status'],
+  properties: {
+    id: { type: 'string' },
+    title: { type: 'string' },
+    content: { type: 'string' },
+    creatorId: { type: 'string' },
+    createdAt: { type: 'number' },
+    categoryId: { type: 'string' },
+    status: { type: 'string', enum: ['DRAFT', 'PUBLISHED'] },
+  },
+};
+
+const categorySchema = {
+  type: 'object',
+  required: ['id', 'name'],
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+  },
+};
+
+const feedbackSchema = {
+  type: 'object',
+  required: ['id', 'articleId', 'userId', 'vote'],
+  properties: {
+    id: { type: 'string' },
+    articleId: { type: 'string' },
+    userId: { type: 'string' },
+    vote: { type: 'string', enum: ['HELPFUL', 'NOT_HELPFUL'] },
+  },
+};
+
+const slaPolicySchema = {
+  type: 'object',
+  required: ['id', 'name', 'priority', 'responseTime', 'resolveTime'],
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    priority: { type: 'string' },
+    responseTime: { type: 'number' },
+    resolveTime: { type: 'number' },
+  },
+};
+
+const workingCalendarSchema = {
+  type: 'object',
+  required: ['id', 'name', 'timezone', 'workingDays', 'workingHours'],
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    timezone: { type: 'string' },
+    workingDays: { type: 'array', items: { type: 'number' } },
+    workingHours: {
+      type: 'object',
+      required: ['start', 'end'],
+      properties: {
+        start: { type: 'string' },
+        end: { type: 'string' },
+      },
+    },
+  },
+};
+
+// Knowledge Base Routes
+app.post(
+  '/api/v1/kb/categories',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 1 },
+        },
+      },
+      response: {
+        201: { 
+          type: 'object',
+          required: ['category'],
+          properties: {
+            category: categorySchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const { name } = request.body as { name: string };
+    const category = createCategory(name);
+    return reply.code(201).send({ category });
+  },
+);
+
+app.get(
+  '/api/v1/kb/categories',
+  {
+    preHandler: authenticate,
+    schema: {
+      response: {
+        200: { 
+          type: 'object',
+          required: ['categories'],
+          properties: {
+            categories: {
+              type: 'array',
+              items: categorySchema,
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const categories = getAllCategories();
+    return reply.send({ categories });
+  },
+);
+
+
+app.post(
+  '/api/v1/kb/articles',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['title', 'content'],
+        properties: {
+          title: { type: 'string', minLength: 1 },
+          content: { type: 'string', minLength: 1 },
+          categoryId: { type: 'string' },
+        },
+      },
+      response: {
+        201: { 
+          type: 'object',
+          required: ['article'],
+          properties: {
+            article: articleSchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) throw new AppError(401, 'Unauthorized');
+
+    const { title, content, categoryId } = request.body as { title: string; content: string; categoryId?: string };
+    const article = createArticle(title, content, userPayload.id, categoryId);
+    return reply.code(201).send({ article });
+  },
+);
+
+app.get(
+  '/api/v1/kb/articles',
+  {
+    preHandler: authenticate,
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          q: { type: 'string' },
+          categoryId: { type: 'string' },
+        },
+      },
+      response: {
+        200: { 
+          type: 'object',
+          required: ['articles'],
+          properties: {
+            articles: {
+              type: 'array',
+              items: articleSchema,
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) throw new AppError(401, 'Unauthorized');
+
+    const { q, categoryId } = request.query as { q?: string; categoryId?: string };
+    const articles = getAllArticles({ query: q, categoryId, role: userPayload.role });
+    return reply.send({ articles });
+  },
+);
+
+app.get(
+  '/api/v1/kb/articles/:id',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      response: {
+        200: { 
+          type: 'object',
+          required: ['article'],
+          properties: {
+            article: articleSchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    const article = getArticleById(params.id);
+    if (!article) throw new AppError(404, 'Article not found');
+    return reply.send({ article });
+  },
+);
+
+app.put(
+  '/api/v1/kb/articles/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          content: { type: 'string' },
+          status: { type: 'string', enum: ['DRAFT', 'PUBLISHED'] },
+        },
+      },
+      response: {
+        200: { 
+          type: 'object',
+          required: ['article'],
+          properties: {
+            article: articleSchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    const updates = request.body as { title?: string; content?: string; status?: 'DRAFT' | 'PUBLISHED' };
+    const article = updateArticle(params.id, updates);
+    if (!article) throw new AppError(404, 'Article not found');
+    return reply.send({ article });
+  },
+);
+
+app.delete(
+  '/api/v1/kb/articles/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      response: {
+        204: {
+          type: 'object',
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    deleteArticle(params.id);
+    return reply.code(204).send();
+  },
+);
+
+app.post(
+  '/api/v1/kb/articles/:id/feedback',
+  {
+    preHandler: authenticate,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      body: {
+        type: 'object',
+        required: ['vote'],
+        properties: {
+          vote: { type: 'string', enum: ['HELPFUL', 'NOT_HELPFUL'] },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          required: ['feedback'],
+          properties: {
+            feedback: feedbackSchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const userPayload = request.user;
+    if (!userPayload) throw new AppError(401, 'Unauthorized');
+
+    const params = request.params as { id: string };
+    const { vote } = request.body as { vote: 'HELPFUL' | 'NOT_HELPFUL' };
+
+    const article = getArticleById(params.id);
+    if (!article) throw new AppError(404, 'Article not found');
+
+    const feedback = createArticleFeedback(params.id, userPayload.id, vote);
+    return reply.code(201).send({ feedback });
+  },
+);
+
+app.get(
+  '/api/v1/kb/articles/:id/feedback',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['feedbacks'],
+          properties: {
+            feedbacks: {
+              type: 'array',
+              items: feedbackSchema,
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    const article = getArticleById(params.id);
+    if (!article) throw new AppError(404, 'Article not found');
+
+    const feedbacks = getArticleFeedbacks(params.id);
+    return reply.send({ feedbacks });
+  },
+);
+
+// Admin Routes
+app.post(
+  '/api/v1/admin/sla-policies',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'priority', 'responseTime', 'resolveTime'],
+        properties: {
+          name: { type: 'string' },
+          priority: { type: 'string' },
+          responseTime: { type: 'number' },
+          resolveTime: { type: 'number' },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          required: ['policy'],
+          properties: {
+            policy: slaPolicySchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const { name, priority, responseTime, resolveTime } = request.body as { name: string; priority: string; responseTime: number; resolveTime: number };
+    const policy = createSlaPolicy(name, priority, responseTime, resolveTime);
+    return reply.code(201).send({ policy });
+  },
+);
+
+app.get(
+  '/api/v1/admin/sla-policies',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['policies'],
+          properties: {
+            policies: {
+              type: 'array',
+              items: slaPolicySchema,
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const policies = getAllSlaPolicies();
+    return reply.send({ policies });
+  },
+);
+
+app.get(
+  '/api/v1/admin/sla-policies/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      response: {
+        200: {
+          type: 'object',
+          required: ['policy'],
+          properties: {
+            policy: slaPolicySchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    const policy = getSlaPolicy(params.id);
+    if (!policy) throw new AppError(404, 'Policy not found');
+    return reply.send({ policy });
+  },
+);
+
+app.put(
+  '/api/v1/admin/sla-policies/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          priority: { type: 'string' },
+          responseTime: { type: 'number' },
+          resolveTime: { type: 'number' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['policy'],
+          properties: {
+            policy: slaPolicySchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    const updates = request.body as { name?: string; priority?: string; responseTime?: number; resolveTime?: number };
+    const policy = updateSlaPolicy(params.id, updates);
+    if (!policy) throw new AppError(404, 'Policy not found');
+    return reply.send({ policy });
+  },
+);
+
+app.delete(
+  '/api/v1/admin/sla-policies/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      response: {
+        204: {
+          type: 'object',
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    deleteSlaPolicy(params.id);
+    return reply.code(204).send();
+  },
+);
+
+app.post(
+  '/api/v1/admin/working-calendars',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'timezone', 'workingDays', 'workingHours'],
+        properties: {
+          name: { type: 'string' },
+          timezone: { type: 'string' },
+          workingDays: { type: 'array', items: { type: 'number' } },
+          workingHours: {
+            type: 'object',
+            required: ['start', 'end'],
+            properties: {
+              start: { type: 'string' },
+              end: { type: 'string' },
+            },
+          },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          required: ['calendar'],
+          properties: {
+            calendar: workingCalendarSchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const { name, timezone, workingDays, workingHours } = request.body as { name: string; timezone: string; workingDays: number[]; workingHours: { start: string; end: string } };
+    const calendar = createWorkingCalendar(name, timezone, workingDays, workingHours);
+    return reply.code(201).send({ calendar });
+  },
+);
+
+app.get(
+  '/api/v1/admin/working-calendars',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          required: ['calendars'],
+          properties: {
+            calendars: {
+              type: 'array',
+              items: workingCalendarSchema,
+            },
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const calendars = getAllWorkingCalendars();
+    return reply.send({ calendars });
+  },
+);
+
+app.get(
+  '/api/v1/admin/working-calendars/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      response: {
+        200: {
+          type: 'object',
+          required: ['calendar'],
+          properties: {
+            calendar: workingCalendarSchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    const calendar = getWorkingCalendar(params.id);
+    if (!calendar) throw new AppError(404, 'Calendar not found');
+    return reply.send({ calendar });
+  },
+);
+
+app.put(
+  '/api/v1/admin/working-calendars/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          timezone: { type: 'string' },
+          workingDays: { type: 'array', items: { type: 'number' } },
+          workingHours: {
+            type: 'object',
+            properties: {
+              start: { type: 'string' },
+              end: { type: 'string' },
+            },
+          },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['calendar'],
+          properties: {
+            calendar: workingCalendarSchema,
+          },
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    const updates = request.body as { name?: string; timezone?: string; workingDays?: number[]; workingHours?: { start: string; end: string } };
+    const calendar = updateWorkingCalendar(params.id, updates);
+    if (!calendar) throw new AppError(404, 'Calendar not found');
+    return reply.send({ calendar });
+  },
+);
+
+app.delete(
+  '/api/v1/admin/working-calendars/:id',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      response: {
+        204: {
+          type: 'object',
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { id: string };
+    deleteWorkingCalendar(params.id);
+    return reply.code(204).send();
+  },
+);
 
 export async function buildApp() {
   await app.ready();
