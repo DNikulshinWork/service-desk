@@ -26,7 +26,6 @@ import {
   getTicketById,
   getUserByEmail,
   getUserById,
-  requireRole as requireRoleHelper,
   serializeUser,
   setRefreshToken,
   signAccessToken,
@@ -61,6 +60,8 @@ import {
   registerInputSchema,
   updateProfileInputSchema,
 } from '@service-desk/shared';
+import { checkSlaBreaches } from './sla.js';
+import { getTicketStatusReport, getAgentPerformanceReport, getCsatReport } from './reports.js';
 
 interface AuthenticatedRequest extends FastifyRequest {
   user?: {
@@ -1113,7 +1114,10 @@ app.get(
     return reply.code(401).send({ message: 'Unauthorized' });
   }
 
-  const companies = getAllCompanies().filter((company) => company.ownerId === userPayload.id);
+  let companies = getAllCompanies();
+  if (userPayload.role !== 'ADMIN') {
+    companies = companies.filter((company) => company.ownerId === userPayload.id);
+  }
 
   return reply.send({
     companies,
@@ -1123,7 +1127,7 @@ app.get(
 app.get(
   '/api/v1/companies/:id/users',
   {
-    preHandler: authenticate,
+    preHandler: [authenticate, requireRole('USER')],
     schema: {
       params: {
         type: 'object',
@@ -1177,7 +1181,7 @@ app.get(
     return reply.code(404).send({ message: 'Company not found' });
   }
 
-  if (company.ownerId !== userPayload.id) {
+  if (company.ownerId !== userPayload.id && userPayload.role !== 'ADMIN') {
     return reply.code(403).send({ message: 'Forbidden' });
   }
 
@@ -1220,6 +1224,50 @@ app.get(
     users: getAllUsers().map(serializeUser),
   });
 });
+
+app.get(
+  '/api/v1/admin/reports/:name',
+  {
+    preHandler: [authenticate, requireRole('ADMIN')],
+    schema: {
+      params: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', enum: ['ticket-status', 'agent-performance', 'csat'] },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          // Схема ответа будет зависеть от отчёта, поэтому оставляем её открытой
+          additionalProperties: true,
+        },
+      },
+    },
+  },
+  async (request: AuthenticatedRequest, reply) => {
+    const params = request.params as { name: string };
+    let report;
+
+    switch (params.name) {
+      case 'ticket-status':
+        report = getTicketStatusReport();
+        break;
+      case 'agent-performance':
+        report = getAgentPerformanceReport();
+        break;
+      case 'csat':
+        report = getCsatReport();
+        break;
+      default:
+        throw new AppError(404, 'Report not found');
+    }
+
+    return reply.send(report);
+  },
+);
+
 
 app.get(
   '/api/v1/auth/oauth/:provider',
@@ -1939,7 +1987,13 @@ export async function buildApp() {
 
 if (process.env.NODE_ENV !== 'test') {
   const port = Number(process.env.PORT || 3000);
-  app.listen({ port, host: '0.0.0.0' }).then(() => {
+  const server = app.listen({ port, host: '0.0.0.0' });
+
+  (app as any).slaTimer = setInterval(() => {
+    checkSlaBreaches();
+  }, 60 * 1000); // every 60 seconds
+
+  server.then(() => {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`Server is running at http://localhost:${port}`);
       console.log(`Swagger documentation is available at http://localhost:${port}/docs`);

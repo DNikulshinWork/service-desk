@@ -127,7 +127,7 @@ export function signRefreshToken(userId: string) {
   );
 }
 
-export function createUser(email: string, password: string, name: string) {
+export function createUser(email: string, password: string, name: string, role: 'USER' | 'ADMIN' = 'USER') {
   const id = randomUUID();
   const passwordHash = bcrypt.hashSync(password, 10);
   const user = {
@@ -135,7 +135,7 @@ export function createUser(email: string, password: string, name: string) {
     email,
     passwordHash,
     name,
-    role: 'USER',
+    role,
   };
 
   users.set(email, user);
@@ -159,6 +159,8 @@ export async function createTicket(
   description: string,
   priority: string,
   creatorId: string,
+  assigneeId?: string,
+  status: string = 'OPEN',
 ) {
   const id = randomUUID();
   const createdAt = Date.now();
@@ -179,8 +181,9 @@ export async function createTicket(
     subject,
     description,
     priority,
-    status: 'OPEN',
+    status,
     creatorId,
+    assigneeId,
     createdAt,
     responseDue,
     resolveDue,
@@ -213,6 +216,9 @@ export async function updateTicket(
     return undefined;
   }
 
+  const wasReassigned = updates.assigneeId && updates.assigneeId !== current.assigneeId;
+  const newAssigneeId = updates.assigneeId;
+
   const updated: Ticket = {
     ...current,
     ...updates,
@@ -232,11 +238,14 @@ export async function updateTicket(
     }
   }
 
-  if (updates.assigneeId && updates.assigneeId !== current.assigneeId) {
-    await sendNotification({ type: 'TICKET_ASSIGNED', ticketId: id, assigneeId: updates.assigneeId });
+  // First, save the updated ticket to the database
+  tickets.set(id, updated);
+
+  // Then, send the notification
+  if (wasReassigned) {
+    await sendNotification({ type: 'TICKET_ASSIGNED', ticketId: id, assigneeId: newAssigneeId });
   }
 
-  tickets.set(id, updated);
   return getTicketWithSlaStatus(updated);
 }
 

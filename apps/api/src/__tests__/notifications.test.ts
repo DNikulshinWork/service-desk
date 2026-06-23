@@ -21,7 +21,7 @@ describe('Notification Emails', () => {
     resetInMemoryDb();
     vi.clearAllMocks();
 
-    adminUser = createUser('admin@example.com', 'password', 'Admin');
+    adminUser = createUser('admin@example.com', 'password', 'Admin', 'ADMIN');
     user1 = createUser('user1@example.com', 'password', 'User One');
     user2 = createUser('user2@example.com', 'password', 'User Two');
   });
@@ -57,7 +57,7 @@ describe('Notification Emails', () => {
       expect(sendEmailSpy).toHaveBeenCalledWith(
         user2.email,
         expect.stringContaining('You have been assigned a new ticket'),
-        expect.stringContaining('You have been assigned a ticket')
+        expect.stringContaining(`by ${user1.name}`)
       );
     });
 

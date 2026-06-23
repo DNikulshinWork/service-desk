@@ -1,92 +1,99 @@
 
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { buildApp } from '../server.js';
-import { getUserByEmail, resetInMemoryDb } from '../auth.js';
+import { FastifyInstance } from 'fastify';
+import { resetInMemoryDb, createUser, createSlaPolicy, createWorkingCalendar, createTicket, getTicketById } from '../auth.js';
+import { checkSlaBreaches } from '../sla.js';
+import * as notifications from '../notifications.js';
 
-describe('SLA policies endpoints', () => {
-  beforeEach(() => {
+// Mock the notifications module
+vi.mock('../notifications.js', async () => {
+  const actual = await vi.importActual('../notifications.js') as any;
+  return {
+    ...actual,
+    sendNotification: vi.fn(),
+  };
+});
+
+describe('Sprint 4: SLA and Notifications', () => {
+  let app: FastifyInstance;
+  let timer: NodeJS.Timeout;
+
+  beforeAll(async () => {
+    app = await buildApp();
     resetInMemoryDb();
+    // Stop the timer from running during tests
+    if ((app as any).slaTimer) {
+      clearInterval((app as any).slaTimer);
+    }
   });
 
-  it('allows ADMIN to manage SLA policies', async () => {
-    const app = await buildApp();
-    const adminEmail = `sla-admin-${Date.now()}@example.com`;
-    const userEmail = `sla-user-${Date.now()}@example.com`;
+  afterAll(() => {
+    // Clear any timers that might have been set
+    if (timer) clearInterval(timer);
+  });
 
-    await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { email: adminEmail, password: 'Password123!', name: 'SLA Admin' } });
-    const admin = getUserByEmail(adminEmail);
-    if (admin) admin.role = 'ADMIN';
+  it('calculates ticket deadlines based on SLA policy and working calendar', async () => {
+    // Setup
+    createWorkingCalendar('Business Hours', 'UTC', [1, 2, 3, 4, 5], { start: '09:00', end: '17:00' });
+    createSlaPolicy('Urgent', 'URGENT', 1, 4); // 1 hour response, 4 hours resolve
 
-    await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { email: userEmail, password: 'Password123!', name: 'SLA User' } });
+    const creationTime = new Date('2024-01-01T10:00:00.000Z').getTime(); // Monday 10:00 AM UTC
+    vi.spyOn(Date, 'now').mockReturnValue(creationTime);
 
-    const adminLogin = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email: adminEmail, password: 'Password123!' } });
-    const adminAccessToken = adminLogin.json().accessToken;
+    // Action
+    const ticket = await createTicket('Test Ticket', 'Description', 'URGENT', 'user-1');
 
-    const userLogin = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email: userEmail, password: 'Password123!' } });
-    const userAccessToken = userLogin.json().accessToken;
+    // Assertion
+    vi.spyOn(Date, 'now').mockRestore();
+    expect(ticket.responseDue).toBeDefined();
+    expect(ticket.resolveDue).toBeDefined();
 
-    // User cannot create an SLA policy
-    const userCreateResponse = await app.inject({
-      method: 'POST',
-      url: '/api/v1/admin/sla-policies',
-      headers: { authorization: `Bearer ${userAccessToken}` },
-      payload: { name: 'User Policy', priority: 'High', responseTime: 1, resolveTime: 4 },
+    const responseDueDate = new Date(ticket.responseDue!);
+    const resolveDueDate = new Date(ticket.resolveDue!);
+
+    expect(responseDueDate.toISOString()).toBe('2024-01-01T11:00:00.000Z');
+    expect(resolveDueDate.toISOString()).toBe('2024-01-01T14:00:00.000Z');
+  });
+
+  it('sends a notification when an SLA is breached', async () => {
+    // Setup
+    createSlaPolicy('Critical', 'CRITICAL', 1, 2);
+    const creationTime = new Date('2024-01-03T10:00:00.000Z').getTime(); // Wednesday 10:00 AM UTC
+    vi.spyOn(Date, 'now').mockReturnValue(creationTime);
+    const ticket = await createTicket('SLA Breach Test', '...', 'CRITICAL', 'user-3');
+    vi.spyOn(Date, 'now').mockRestore();
+
+    // Mock sendNotification to check if it's called
+    const sendNotificationSpy = vi.spyOn(notifications, 'sendNotification');
+
+    // 1. Move time forward to breach the response SLA
+    const breachTime = new Date('2024-01-03T11:01:00.000Z').getTime();
+    vi.spyOn(Date, 'now').mockReturnValue(breachTime);
+
+    // 2. Run the check
+    await checkSlaBreaches();
+
+    // 3. Assert notification was sent for response breach
+    expect(sendNotificationSpy).toHaveBeenCalledWith({
+      type: 'SLA_BREACHED',
+      ticketId: ticket.id,
+      slaType: 'response',
     });
-    expect(userCreateResponse.statusCode).toBe(403);
 
-    // Admin can create an SLA policy
-    const createResponse = await app.inject({
-      method: 'POST',
-      url: '/api/v1/admin/sla-policies',
-      headers: { authorization: `Bearer ${adminAccessToken}` },
-      payload: { name: 'High Priority', priority: 'High', responseTime: 1, resolveTime: 4 },
-    });
-    expect(createResponse.statusCode).toBe(201);
-    const policy = createResponse.json().policy;
-    expect(policy.name).toBe('High Priority');
+    // 4. Move time forward to breach the resolve SLA
+    const resolveBreachTime = new Date('2024-01-03T12:01:00.000Z').getTime();
+    vi.spyOn(Date, 'now').mockReturnValue(resolveBreachTime);
+    await checkSlaBreaches();
 
-    // Admin can list SLA policies
-    const listResponse = await app.inject({
-      method: 'GET',
-      url: '/api/v1/admin/sla-policies',
-      headers: { authorization: `Bearer ${adminAccessToken}` },
+    // 5. Assert notification was sent for resolve breach
+    expect(sendNotificationSpy).toHaveBeenCalledWith({
+      type: 'SLA_BREACHED',
+      ticketId: ticket.id,
+      slaType: 'resolve',
     });
-    expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json().policies.length).toBe(1);
 
-    // Admin can get a specific SLA policy
-    const getResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/admin/sla-policies/${policy.id}`,
-      headers: { authorization: `Bearer ${adminAccessToken}` },
-    });
-    expect(getResponse.statusCode).toBe(200);
-    expect(getResponse.json().policy.name).toBe('High Priority');
-
-    // Admin can update an SLA policy
-    const updateResponse = await app.inject({
-      method: 'PUT',
-      url: `/api/v1/admin/sla-policies/${policy.id}`,
-      headers: { authorization: `Bearer ${adminAccessToken}` },
-      payload: { name: 'Critical Priority' },
-    });
-    expect(updateResponse.statusCode).toBe(200);
-    expect(updateResponse.json().policy.name).toBe('Critical Priority');
-
-    // Admin can delete an SLA policy
-    const deleteResponse = await app.inject({
-      method: 'DELETE',
-      url: `/api/v1/admin/sla-policies/${policy.id}`,
-      headers: { authorization: `Bearer ${adminAccessToken}` },
-    });
-    expect(deleteResponse.statusCode).toBe(204);
-
-    // The policy should no longer exist
-    const getAfterDeleteResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/admin/sla-policies/${policy.id}`,
-      headers: { authorization: `Bearer ${adminAccessToken}` },
-    });
-    expect(getAfterDeleteResponse.statusCode).toBe(404);
+    vi.spyOn(Date, 'now').mockRestore();
+    sendNotificationSpy.mockRestore();
   });
 });

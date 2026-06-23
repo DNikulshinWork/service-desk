@@ -1,22 +1,15 @@
 
-// This is a mock transport layer. In a real application, this would
-// integrate with services like Postmark, SendGrid, or a webhook provider.
+// This module contains functions for sending notifications through various transports.
 
-export const sentEmails: { to: string; subject: string; body: string }[] = [];
-
-export function sendEmail(to: string, subject: string, body: string) {
-  console.log(`--- Sending Email ---`);
+/**
+ * Sends an email.
+ * NOTE: This is a mock implementation for demonstration purposes.
+ */
+export async function sendEmail(to: string, subject: string, body: string): Promise<{ ok: boolean }> {
+  console.log('--- Sending Email ---');
   console.log(`To: ${to}`);
   console.log(`Subject: ${subject}`);
-  console.log(body);
-  console.log(`---------------------`);
-
-  // Store for test verification
-  sentEmails.push({ to, subject, body });
-
-  return Promise.resolve();
-}
-
-export function clearSentEmails() {
-  sentEmails.length = 0;
+  console.log(`${body}`);
+  console.log('---------------------');
+  return { ok: true };
 }

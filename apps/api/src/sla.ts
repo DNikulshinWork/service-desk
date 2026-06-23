@@ -1,5 +1,6 @@
 
-import { type Ticket } from './auth.js';
+import { type Ticket, getAllTickets } from './auth.js';
+import { sendNotification } from './notifications.js';
 
 type SlaStatus = 'Pending' | 'Met' | 'Breached';
 
@@ -32,4 +33,20 @@ export function getTicketWithSlaStatus(ticket: Ticket): TicketWithSla {
     responseSlaStatus,
     resolveSlaStatus,
   };
+}
+
+export async function checkSlaBreaches() {
+  const openTickets = getAllTickets({ status: 'OPEN' });
+
+  for (const ticket of openTickets) {
+    const ticketWithSla = getTicketWithSlaStatus(ticket);
+
+    if (ticketWithSla.responseSlaStatus === 'Breached') {
+      await sendNotification({ type: 'SLA_BREACHED', ticketId: ticket.id, slaType: 'response' });
+    }
+
+    if (ticketWithSla.resolveSlaStatus === 'Breached') {
+      await sendNotification({ type: 'SLA_BREACHED', ticketId: ticket.id, slaType: 'resolve' });
+    }
+  }
 }
